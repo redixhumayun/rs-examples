@@ -35,11 +35,6 @@ impl<T> SpinLock<T> {
         }
         LockGuard { lock: &self }
     }
-
-    fn unlock(&self) {
-        self.locked
-            .store(false, std::sync::atomic::Ordering::Release);
-    }
 }
 
 struct LockGuard<'a, T> {
