@@ -39,7 +39,7 @@ impl<T> Channel<T> {
 
 #[cfg(test)]
 mod test {
-    use std::{sync::Arc, thread};
+    use std::thread;
 
     use super::*;
 
@@ -55,10 +55,13 @@ mod test {
         let channel = Channel::new();
         let thread = thread::current();
         thread::scope(|s| {
-            s.spawn(|| {
-                channel.send(42);
-                thread.unpark();
-            });
+            thread::Builder::new()
+                .name("SenderThread".to_string())
+                .spawn_scoped(s, || {
+                    channel.send(42);
+                    thread.unpark();
+                })
+                .unwrap();
             while !channel.is_ready() {
                 thread::park();
             }
