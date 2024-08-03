@@ -2,6 +2,7 @@ mod mutex;
 use mutex::SpinLock;
 
 mod channel;
+mod channel_split;
 
 fn run_mutex_example() {
     let spin_lock = SpinLock::new(0);
