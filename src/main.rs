@@ -1,4 +1,6 @@
 mod mutex;
+use std::pin::Pin;
+
 use mutex::SpinLock;
 
 mod channel;
@@ -22,5 +24,20 @@ fn run_mutex_example() {
 }
 
 fn main() {
-    run_mutex_example();
+    // run_mutex_example();
+    #[derive(Debug)]
+    struct MyData {
+        value: String,
+    }
+
+    let my_data = Pin::new(Box::new(MyData {
+        value: String::from("hello"),
+    }));
+    // let my_data_ptr: *const MyData = &*my_data; // Pointer to data
+
+    // Moving the box
+    let moved_data = Box::new(MyData {
+        value: my_data.value,
+    });
+    println!("Moved data value: {}", moved_data.value);
 }
