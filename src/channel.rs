@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{cell::UnsafeCell, mem::MaybeUninit, sync::atomic::AtomicBool};
 
 pub struct Channel<T> {
