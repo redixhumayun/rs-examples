@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::{
-    alloc::{alloc, Layout},
+    alloc::{alloc, dealloc, Layout},
     ptr::NonNull,
 };
 
@@ -115,6 +115,17 @@ impl Buffer {
             len: 0,
             capacity,
         }
+    }
+}
+
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        if self.capacity == 0 {
+            return;
+        }
+
+        let layout = Layout::array::<u8>(self.capacity).expect("invalid layout");
+        unsafe { dealloc(self.ptr.as_ptr(), layout) };
     }
 }
 
