@@ -9,3 +9,7 @@ std-semaphore = "0.1.0"
 [[bin]]
 name = "buffer"
 path = "src/buffer.rs"
+
+[[bin]]
+name = "drop_no_drop"
+path = "src/drop_no_drop.rs"

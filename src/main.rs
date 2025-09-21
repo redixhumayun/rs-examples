@@ -2,6 +2,7 @@ mod bounded_queue;
 mod buffer;
 mod channel;
 mod channel_split;
+mod drop_no_drop;
 mod mutex;
 mod semaphore;
 
