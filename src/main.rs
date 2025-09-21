@@ -1,4 +1,5 @@
 mod bounded_queue;
+mod buffer;
 mod channel;
 mod channel_split;
 mod mutex;

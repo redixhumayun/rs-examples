@@ -5,3 +5,7 @@ edition = "2021"
 
 [dependencies]
 std-semaphore = "0.1.0"
+
+[[bin]]
+name = "buffer"
+path = "src/buffer.rs"
