@@ -3,7 +3,6 @@
 use std::{
     alloc::{alloc, dealloc, Layout},
     mem::MaybeUninit,
-    ptr::copy,
 };
 
 struct SafeVec<T> {
@@ -37,9 +36,15 @@ impl<T> SafeVec<T> {
         if ptr.is_null() {
             panic!("unable to allocate {0} for SafeVec", self.capacity);
         }
-        unsafe { copy(self.ptr, ptr, self.len) };
-        self.ptr = ptr;
 
+        for i in 0..self.len {
+            unsafe {
+                let value = self.ptr.add(i).read();
+                ptr.add(i).write(value);
+            }
+        }
+
+        self.ptr = ptr;
         unsafe {
             dealloc(old_ptr as *mut u8, old_layout);
         };
