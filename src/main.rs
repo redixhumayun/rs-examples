@@ -4,6 +4,7 @@ mod channel;
 mod channel_split;
 mod drop_no_drop;
 mod mutex;
+mod safe_vec;
 mod semaphore;
 
 use mutex::SpinLock;

@@ -20,8 +20,8 @@ impl Drop for FooWithDrop<'_> {
 fn test_with_drop() {
     let mut x = true;
     let mut _foo = FooWithDrop(&mut x);
-    x = false; // This should be rejected because Drop will access the reference
-    println!("x is now: {}", x);
+    // x = false; // This should be rejected because Drop will access the reference
+    // println!("x is now: {}", x);
 }
 
 fn main() {
