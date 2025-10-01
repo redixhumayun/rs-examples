@@ -85,7 +85,7 @@ impl<T> SafeArc<T> {
         if let Err(_) =
             arc.data()
                 .weak
-                .compare_exchange(1, usize::MAX, Ordering::Acquire, Ordering::Relaxed)
+                .compare_exchange(1, usize::MAX, Ordering::AcqRel, Ordering::Relaxed)
         {
             return None;
         }
