@@ -1,14 +1,64 @@
 #![allow(dead_code)]
 
 use std::{
+    mem::ManuallyDrop,
     ops::Deref,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
+    usize,
 };
 
 struct ArcData<T> {
-    ref_count: AtomicUsize,
-    data: T,
+    strong: AtomicUsize,
+    weak: AtomicUsize,
+    data: ManuallyDrop<T>,
+}
+
+struct Weak<T> {
+    ptr: NonNull<ArcData<T>>,
+}
+
+impl<T> Weak<T> {
+    fn data(&self) -> &ArcData<T> {
+        unsafe { self.ptr.as_ref() }
+    }
+
+    pub fn upgrade(&self) -> Option<SafeArc<T>> {
+        let mut strong_count = self.data().strong.load(Ordering::Relaxed);
+        loop {
+            if strong_count == 0 {
+                return None;
+            }
+            if let Err(e) = self.data().strong.compare_exchange_weak(
+                strong_count,
+                strong_count + 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                strong_count = e;
+                continue;
+            };
+            return Some(SafeArc { ptr: self.ptr });
+        }
+    }
+}
+
+impl<T> Clone for Weak<T> {
+    fn clone(&self) -> Self {
+        self.data().weak.fetch_add(1, Ordering::Relaxed);
+        Self {
+            ptr: self.ptr.clone(),
+        }
+    }
+}
+
+impl<T> Drop for Weak<T> {
+    fn drop(&mut self) {
+        if self.data().weak.fetch_sub(1, Ordering::AcqRel) == 1 {
+            let boxed = unsafe { Box::from_raw(self.ptr.as_ptr()) };
+            drop(boxed);
+        }
+    }
 }
 
 struct SafeArc<T> {
@@ -19,8 +69,9 @@ impl<T> SafeArc<T> {
     fn new(data: T) -> SafeArc<T> {
         SafeArc {
             ptr: NonNull::new(Box::into_raw(Box::new(ArcData {
-                ref_count: AtomicUsize::new(1),
-                data,
+                strong: AtomicUsize::new(1),
+                weak: AtomicUsize::new(1),
+                data: ManuallyDrop::new(data),
             })))
             .expect("cannot be null"),
         }
@@ -31,17 +82,39 @@ impl<T> SafeArc<T> {
     }
 
     fn get_mut(arc: &mut Self) -> Option<&mut T> {
-        if arc
-            .data()
-            .ref_count
-            .load(std::sync::atomic::Ordering::Relaxed)
-            == 1
+        if let Err(_) =
+            arc.data()
+                .weak
+                .compare_exchange(1, usize::MAX, Ordering::Acquire, Ordering::Relaxed)
         {
-            unsafe {
-                return Some(&mut arc.ptr.as_mut().data);
-            }
+            return None;
+        }
+        let is_unique = arc.data().strong.load(Ordering::Relaxed) == 1;
+        arc.data().weak.store(1, Ordering::Release);
+        if is_unique {
+            unsafe { return Some(&mut arc.ptr.as_mut().data) }
         } else {
-            None
+            return None;
+        }
+    }
+
+    pub fn downgrade(arc: &mut Self) -> Weak<T> {
+        let mut n = arc.data().weak.load(Ordering::Acquire);
+        loop {
+            if n == usize::MAX {
+                std::hint::spin_loop();
+                n = arc.data().weak.load(Ordering::Acquire);
+                continue;
+            }
+            if let Err(e) =
+                arc.data()
+                    .weak
+                    .compare_exchange(n, n + 1, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                n = e;
+                continue;
+            }
+            return Weak { ptr: arc.ptr };
         }
     }
 }
@@ -56,19 +129,21 @@ impl<T> Deref for SafeArc<T> {
 
 impl<T> Clone for SafeArc<T> {
     fn clone(&self) -> Self {
-        if self.data().ref_count.load(Ordering::Relaxed) > usize::MAX / 2 {
+        if self.data().strong.load(Ordering::Relaxed) > usize::MAX / 2 {
             std::process::abort();
         }
-        self.data().ref_count.fetch_add(1, Ordering::Relaxed);
-        SafeArc { ptr: self.ptr }
+        self.data().strong.fetch_add(1, Ordering::Relaxed);
+        Self { ptr: self.ptr }
     }
 }
 
 impl<T> Drop for SafeArc<T> {
     fn drop(&mut self) {
-        if self.data().ref_count.fetch_sub(1, Ordering::AcqRel) == 1 {
-            let boxed = unsafe { Box::from_raw(self.ptr.as_ptr()) };
-            drop(boxed);
+        if self.data().strong.fetch_sub(1, Ordering::AcqRel) == 1 {
+            unsafe {
+                ManuallyDrop::drop(&mut self.ptr.as_mut().data);
+            }
+            drop(Weak { ptr: self.ptr });
         }
     }
 }
