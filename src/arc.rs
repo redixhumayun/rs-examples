@@ -17,14 +17,13 @@ struct SafeArc<T> {
 
 impl<T> SafeArc<T> {
     fn new(data: T) -> SafeArc<T> {
-        let data = ArcData {
-            ref_count: AtomicUsize::new(1),
-            data,
-        };
-        let boxed_data = Box::new(data);
-        let raw_ptr = Box::into_raw(boxed_data);
-        let ptr = NonNull::new(raw_ptr).expect("cannot be null");
-        SafeArc { ptr }
+        SafeArc {
+            ptr: NonNull::new(Box::into_raw(Box::new(ArcData {
+                ref_count: AtomicUsize::new(1),
+                data,
+            })))
+            .expect("cannot be null"),
+        }
     }
 
     fn data(&self) -> &ArcData<T> {
@@ -57,7 +56,7 @@ impl<T> Deref for SafeArc<T> {
 
 impl<T> Clone for SafeArc<T> {
     fn clone(&self) -> Self {
-        if self.data().ref_count.load(Ordering::Relaxed) == usize::MAX {
+        if self.data().ref_count.load(Ordering::Relaxed) > usize::MAX / 2 {
             std::process::abort();
         }
         self.data().ref_count.fetch_add(1, Ordering::Relaxed);
@@ -75,6 +74,7 @@ impl<T> Drop for SafeArc<T> {
 }
 
 unsafe impl<T: Send> Send for SafeArc<T> {}
+unsafe impl<T: Sync> Sync for SafeArc<T> {}
 
 #[cfg(test)]
 mod tests {
@@ -91,11 +91,30 @@ mod tests {
     }
 
     #[test]
-    fn arc_multithreaded_test() {
+    fn arc_send_test() {
         let arc_1 = SafeArc::new(42);
         let thread = thread::spawn(move || {
             assert_eq!(*arc_1, 42);
         });
         thread.join().unwrap();
+    }
+
+    #[test]
+    fn arc_sync_test() {
+        let safe_arc = SafeArc::new(42);
+
+        std::thread::scope(|s| {
+            let mut handles = Vec::new();
+            for _ in 0..4 {
+                let handle = s.spawn(|| {
+                    assert_eq!(*safe_arc, 42);
+                });
+                handles.push(handle);
+            }
+
+            for handle in handles {
+                handle.join().unwrap();
+            }
+        });
     }
 }
