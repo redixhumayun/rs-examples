@@ -1,3 +1,4 @@
+mod arc;
 mod bounded_queue;
 mod buffer;
 mod channel;
