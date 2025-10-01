@@ -117,4 +117,40 @@ mod tests {
             }
         });
     }
+
+    #[test]
+    fn arc_full_test() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static DROP_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+        struct DropCounter;
+
+        impl Drop for DropCounter {
+            fn drop(&mut self) {
+                DROP_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        DROP_COUNTER.store(0, Ordering::SeqCst);
+
+        let arc1 = SafeArc::new(DropCounter);
+        let arc2 = arc1.clone();
+        let arc3 = arc1.clone();
+        let arc4 = arc2.clone();
+
+        assert_eq!(DROP_COUNTER.load(Ordering::SeqCst), 0);
+
+        drop(arc1);
+        assert_eq!(DROP_COUNTER.load(Ordering::SeqCst), 0);
+
+        drop(arc2);
+        assert_eq!(DROP_COUNTER.load(Ordering::SeqCst), 0);
+
+        drop(arc3);
+        assert_eq!(DROP_COUNTER.load(Ordering::SeqCst), 0);
+
+        drop(arc4);
+        assert_eq!(DROP_COUNTER.load(Ordering::SeqCst), 1);
+    }
 }
