@@ -310,4 +310,191 @@ mod tests {
         }
         in_order_traversal(&root);
     }
+
+    #[test]
+    fn arc_multithreaded_tree_test() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Mutex,
+        };
+        use std::thread;
+
+        static VISIT_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+        struct Node {
+            value: usize,
+            left: Option<SafeArc<Mutex<Node>>>,
+            right: Option<SafeArc<Mutex<Node>>>,
+            parent: Option<Weak<Mutex<Node>>>,
+        }
+
+        unsafe impl Send for Node {}
+
+        // Build a tree with multiple levels
+        let leaf_1 = SafeArc::new(Mutex::new(Node {
+            value: 4,
+            left: None,
+            right: None,
+            parent: None,
+        }));
+        let leaf_2 = SafeArc::new(Mutex::new(Node {
+            value: 5,
+            left: None,
+            right: None,
+            parent: None,
+        }));
+        let leaf_3 = SafeArc::new(Mutex::new(Node {
+            value: 6,
+            left: None,
+            right: None,
+            parent: None,
+        }));
+        let leaf_4 = SafeArc::new(Mutex::new(Node {
+            value: 7,
+            left: None,
+            right: None,
+            parent: None,
+        }));
+
+        let int_left = SafeArc::new(Mutex::new(Node {
+            value: 2,
+            left: Some(leaf_1.clone()),
+            right: Some(leaf_2.clone()),
+            parent: None,
+        }));
+
+        let int_right = SafeArc::new(Mutex::new(Node {
+            value: 3,
+            left: Some(leaf_3.clone()),
+            right: Some(leaf_4.clone()),
+            parent: None,
+        }));
+
+        let root = SafeArc::new(Mutex::new(Node {
+            value: 1,
+            left: Some(int_left.clone()),
+            right: Some(int_right.clone()),
+            parent: None,
+        }));
+
+        VISIT_COUNTER.store(0, Ordering::SeqCst);
+
+        // Spawn multiple threads that traverse different parts of the tree concurrently
+        let mut handles = vec![];
+
+        // Thread 1: Traverse left subtree
+        let left_subtree = int_left.clone();
+        handles.push(thread::spawn(move || {
+            fn traverse_and_count(node: &SafeArc<Mutex<Node>>) {
+                VISIT_COUNTER.fetch_add(1, Ordering::SeqCst);
+                let locked = node.lock().unwrap();
+                println!(
+                    "Thread {:?} visiting node: {}",
+                    thread::current().id(),
+                    locked.value
+                );
+
+                let left_child = locked.left.clone();
+                let right_child = locked.right.clone();
+
+                if let Some(left) = left_child {
+                    traverse_and_count(&left);
+                }
+                if let Some(right) = right_child {
+                    traverse_and_count(&right);
+                }
+            }
+            traverse_and_count(&left_subtree);
+        }));
+
+        // Thread 2: Traverse right subtree
+        let right_subtree = int_right.clone();
+        handles.push(thread::spawn(move || {
+            fn traverse_and_count(node: &SafeArc<Mutex<Node>>) {
+                VISIT_COUNTER.fetch_add(1, Ordering::SeqCst);
+                let locked = node.lock().unwrap();
+                println!(
+                    "Thread {:?} visiting node: {}",
+                    thread::current().id(),
+                    locked.value
+                );
+
+                let left_child = locked.left.clone();
+                let right_child = locked.right.clone();
+
+                if let Some(left) = left_child {
+                    traverse_and_count(&left);
+                }
+                if let Some(right) = right_child {
+                    traverse_and_count(&right);
+                }
+            }
+            traverse_and_count(&right_subtree);
+        }));
+
+        // Thread 3: Access root and random nodes
+        let root_clone = root.clone();
+        let random_leaf = leaf_2.clone();
+        handles.push(thread::spawn(move || {
+            for _ in 0..10 {
+                println!(
+                    "Thread {:?} accessing root: {}",
+                    thread::current().id(),
+                    root_clone.lock().unwrap().value
+                );
+                println!(
+                    "Thread {:?} accessing leaf: {}",
+                    thread::current().id(),
+                    random_leaf.lock().unwrap().value
+                );
+                VISIT_COUNTER.fetch_add(2, Ordering::SeqCst);
+                thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }));
+
+        // Thread 4: Stress test cloning and dropping
+        let stress_node = leaf_1.clone();
+        handles.push(thread::spawn(move || {
+            for _ in 0..100 {
+                let cloned = stress_node.clone();
+                VISIT_COUNTER.fetch_add(1, Ordering::SeqCst);
+                drop(cloned);
+            }
+        }));
+
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Verify that all operations completed
+        let final_count = VISIT_COUNTER.load(Ordering::SeqCst);
+        println!("Total operations: {}", final_count);
+        assert!(final_count > 0);
+
+        // Verify tree structure is still intact
+        assert_eq!(root.lock().unwrap().value, 1);
+        assert_eq!(
+            root.lock()
+                .unwrap()
+                .left
+                .as_ref()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .value,
+            2
+        );
+        assert_eq!(
+            root.lock()
+                .unwrap()
+                .right
+                .as_ref()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .value,
+            3
+        );
+    }
 }
