@@ -87,6 +87,7 @@ impl<T> SafeArc<T> {
                 .weak
                 .compare_exchange(1, usize::MAX, Ordering::AcqRel, Ordering::Relaxed)
         {
+            println!("returning None because weak is locked");
             return None;
         }
         let is_unique = arc.data().strong.load(Ordering::Relaxed) == 1;
@@ -94,6 +95,7 @@ impl<T> SafeArc<T> {
         if is_unique {
             unsafe { return Some(&mut arc.ptr.as_mut().data) }
         } else {
+            println!("returning None because is_unique is false");
             return None;
         }
     }
@@ -155,7 +157,7 @@ unsafe impl<T: Sync> Sync for SafeArc<T> {}
 mod tests {
     use std::thread;
 
-    use crate::arc::SafeArc;
+    use crate::arc::{SafeArc, Weak};
 
     #[test]
     fn arc_basic_test() {
@@ -227,5 +229,85 @@ mod tests {
 
         drop(arc4);
         assert_eq!(DROP_COUNTER.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn arc_test_tree() {
+        use std::cell::RefCell;
+
+        struct Node {
+            value: usize,
+            left: Option<SafeArc<RefCell<Node>>>,
+            right: Option<SafeArc<RefCell<Node>>>,
+            parent: Option<Weak<RefCell<Node>>>,
+        }
+
+        let leaf_1 = SafeArc::new(RefCell::new(Node {
+            value: 5,
+            left: None,
+            right: None,
+            parent: None,
+        }));
+        let leaf_2 = SafeArc::new(RefCell::new(Node {
+            value: 6,
+            left: None,
+            right: None,
+            parent: None,
+        }));
+        let mut int_left_node = SafeArc::new(RefCell::new(Node {
+            value: 2,
+            left: Some(leaf_1.clone()),
+            right: Some(leaf_2.clone()),
+            parent: None,
+        }));
+        leaf_1.borrow_mut().parent = Some(SafeArc::downgrade(&mut int_left_node));
+        leaf_2.borrow_mut().parent = Some(SafeArc::downgrade(&mut int_left_node));
+
+        let leaf_3 = SafeArc::new(RefCell::new(Node {
+            value: 7,
+            left: None,
+            right: None,
+            parent: None,
+        }));
+        let leaf_4 = SafeArc::new(RefCell::new(Node {
+            value: 8,
+            left: None,
+            right: None,
+            parent: None,
+        }));
+        let mut int_right_node = SafeArc::new(RefCell::new(Node {
+            value: 3,
+            left: Some(leaf_3.clone()),
+            right: Some(leaf_4.clone()),
+            parent: None,
+        }));
+        leaf_3.borrow_mut().parent = Some(SafeArc::downgrade(&mut int_right_node));
+        leaf_4.borrow_mut().parent = Some(SafeArc::downgrade(&mut int_right_node));
+
+        let mut root = SafeArc::new(RefCell::new(Node {
+            value: 1,
+            left: Some(int_left_node.clone()),
+            right: Some(int_right_node.clone()),
+            parent: None,
+        }));
+
+        int_left_node.borrow_mut().parent = Some(SafeArc::downgrade(&mut root));
+        int_right_node.borrow_mut().parent = Some(SafeArc::downgrade(&mut root));
+
+        fn in_order_traversal(node: &SafeArc<RefCell<Node>>) {
+            if node.borrow().left.is_none() && node.borrow().right.is_none() {
+                println!("val: {}", node.borrow().value);
+                return;
+            }
+
+            if let Some(left) = &node.borrow().left {
+                in_order_traversal(left);
+            }
+            println!("val: {}", node.borrow().value);
+            if let Some(right) = &node.borrow().right {
+                in_order_traversal(right);
+            }
+        }
+        in_order_traversal(&root);
     }
 }
